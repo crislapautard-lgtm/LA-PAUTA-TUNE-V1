@@ -1,3 +1,4 @@
+
 name: Build LA PAUTA TUNE V1 - Windows Installer
 
 on:
@@ -17,26 +18,24 @@ jobs:
 
       - name: Configurar compilación x64
         shell: pwsh
-        run: |
-          cmake -S . -B build -A x64 -DCMAKE_BUILD_TYPE=Release
+        run: cmake -S . -B build -A x64 -DCMAKE_BUILD_TYPE=Release
 
       - name: Compilar Standalone y VST3
         shell: pwsh
-        run: |
-          cmake --build build --config Release --parallel
+        run: cmake --build build --config Release --parallel
 
-      - name: Preparar archivos para el instalador
+      - name: Preparar archivos del instalador
         shell: pwsh
         run: |
           $stage = Join-Path $PWD "installer\payload"
           New-Item -ItemType Directory -Force -Path $stage | Out-Null
 
           $standalone = Get-ChildItem -Path "build" -Recurse -File -Filter "*.exe" |
-            Where-Object { $_.FullName -match "Standalone" } |
+            Where-Object { $_.FullName -match "Standalone" -and $_.Name -notmatch "helper|manifest" } |
             Select-Object -First 1
 
           if (-not $standalone) {
-            throw "No se encontró el ejecutable Standalone. Revisa el nombre del target y la salida de JUCE."
+            throw "No se encontró el ejecutable Standalone. Revisa la salida de compilación JUCE."
           }
 
           Copy-Item $standalone.FullName (Join-Path $stage "LaPautaTuneV1.exe") -Force
@@ -44,12 +43,13 @@ jobs:
           $vst3 = Get-ChildItem -Path "build" -Recurse -Directory -Filter "*.vst3" |
             Select-Object -First 1
 
-          if ($vst3) {
-            Copy-Item $vst3.FullName (Join-Path $stage "LaPautaTuneV1.vst3") -Recurse -Force
-          } else {
-            Write-Host "AVISO: No se encontró el paquete VST3; se instalará solo Standalone."
+          if (-not $vst3) {
+            throw "No se encontró el paquete VST3 compilado."
           }
 
+          Copy-Item $vst3.FullName (Join-Path $stage "LaPautaTuneV1.vst3") -Recurse -Force
+
+          Write-Host "Contenido preparado:"
           Get-ChildItem $stage -Recurse
 
       - name: Instalar Inno Setup
@@ -67,7 +67,7 @@ jobs:
           AppPublisher=LA PAUTA
           DefaultDirName={autopf}\LA PAUTA TUNE V1
           DefaultGroupName=LA PAUTA TUNE V1
-          OutputDir=installer-output
+          OutputDir=..\installer-output
           OutputBaseFilename=LA_PAUTA_TUNE_V1_Windows_x64_Setup
           ArchitecturesInstallIn64BitMode=x64
           ArchitecturesAllowed=x64
@@ -80,18 +80,12 @@ jobs:
           Name: "desktopicon"; Description: "Crear acceso directo en el escritorio"; Flags: unchecked
 
           [Files]
-          Source: "installer\payload\LaPautaTuneV1.exe"; DestDir: "{app}"; Flags: ignoreversion
-          Source: "installer\payload\LaPautaTuneV1.vst3\*"; DestDir: "{commoncf}\VST3\LaPautaTuneV1.vst3"; Flags: ignoreversion recursesubdirs createallsubdirs; Check: VST3Exists
+          Source: "payload\LaPautaTuneV1.exe"; DestDir: "{app}"; Flags: ignoreversion
+          Source: "payload\LaPautaTuneV1.vst3\*"; DestDir: "{commoncf}\VST3\LaPautaTuneV1.vst3"; Flags: ignoreversion recursesubdirs createallsubdirs
 
           [Icons]
           Name: "{group}\LA PAUTA TUNE V1"; Filename: "{app}\LaPautaTuneV1.exe"
           Name: "{autodesktop}\LA PAUTA TUNE V1"; Filename: "{app}\LaPautaTuneV1.exe"; Tasks: desktopicon
-
-          [Code]
-          function VST3Exists: Boolean;
-          begin
-            Result := DirExists(ExpandConstant('{src}\installer\payload\LaPautaTuneV1.vst3'));
-          end;
           '@ | Set-Content -Path "installer\LaPautaTuneV1.iss" -Encoding ASCII
 
       - name: Construir instalador EXE
@@ -99,7 +93,9 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force -Path "installer-output" | Out-Null
           & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "installer\LaPautaTuneV1.iss"
-          if ($LASTEXITCODE -ne 0) { throw "Falló la creación del instalador." }
+          if ($LASTEXITCODE -ne 0) {
+            throw "Falló la creación del instalador."
+          }
 
       - name: Publicar instalador para descargar
         uses: actions/upload-artifact@v4
