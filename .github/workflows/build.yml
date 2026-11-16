@@ -12,15 +12,35 @@ jobs:
     runs-on: windows-2022
 
     steps:
+
+      # 1. Descargar repositorio
       - name: Descargar codigo
         uses: actions/checkout@v4
 
+      # 2. Verificar archivos del proyecto
+      - name: Verificar estructura
+        shell: pwsh
+        run: |
+          if (!(Test-Path "CMakeLists.txt")) {
+            throw "No existe CMakeLists.txt"
+          }
+
+          if (!(Test-Path "Installer/LaPautaTune.iss")) {
+            throw "No existe Installer/LaPautaTune.iss"
+          }
+
+          Get-ChildItem -Force
+          Get-ChildItem Installer
+
+      # 3. Configurar CMake
       - name: Configurar
         run: cmake -S . -B build -A x64
 
+      # 4. Compilar plugin
       - name: Compilar
         run: cmake --build build --config Release --parallel
 
+      # 5. Localizar VST3 y empaquetar
       - name: Empaquetar VST3
         shell: pwsh
         run: |
@@ -29,19 +49,29 @@ jobs:
             Select-Object -First 1
 
           if (-not $vst3) {
-            throw "No se encontró el plugin VST3"
+            throw "No se encontró el plugin VST3 compilado"
           }
 
           New-Item -ItemType Directory -Force -Path dist | Out-Null
-          Copy-Item -Recurse -Force $vst3.FullName "dist/$($vst3.Name)"
 
+          $destination = Join-Path "dist" $vst3.Name
+
+          Copy-Item -Recurse -Force $vst3.FullName $destination
+
+          if (!(Test-Path $destination)) {
+            throw "No se pudo copiar el VST3"
+          }
+
+          Write-Host "VST3 empaquetado:"
           Get-ChildItem dist
 
+      # 6. Instalar Inno Setup
       - name: Instalar Inno Setup
         shell: pwsh
         run: |
           choco install innosetup --yes --no-progress
 
+      # 7. Localizar compilador Inno Setup
       - name: Verificar Inno Setup
         shell: pwsh
         run: |
@@ -50,39 +80,66 @@ jobs:
             "$env:ProgramFiles\Inno Setup 6\ISCC.exe"
           )
 
-          $iscc = $paths | Where-Object { Test-Path $_ } |
+          $iscc = $paths |
+            Where-Object { $_ -and (Test-Path $_) } |
             Select-Object -First 1
 
           if (-not $iscc) {
             throw "No se encontró ISCC.exe"
           }
 
-          "ISCC_PATH=$iscc" >> $env:GITHUB_ENV
+          Write-Host "Inno Setup encontrado: $iscc"
 
+          "ISCC_PATH=$iscc" | Out-File `
+            -FilePath $env:GITHUB_ENV `
+            -Append -Encoding utf8
+
+      # 8. Crear instalador
       - name: Crear instalador
         shell: pwsh
         run: |
           $iss = "Installer/LaPautaTune.iss"
 
-          if (-not (Test-Path $iss)) {
+          if (!(Test-Path $iss)) {
             throw "No existe Installer/LaPautaTune.iss"
           }
+
+          $vst3 = Get-ChildItem "dist" -Directory -Filter "*.vst3" |
+            Select-Object -First 1
+
+          if (!$vst3) {
+            throw "No existe el VST3 dentro de dist"
+          }
+
+          Write-Host "Compilando instalador con: $iss"
+          Write-Host "Plugin encontrado: $($vst3.Name)"
 
           & "$env:ISCC_PATH" "/ODist" $iss
 
           if ($LASTEXITCODE -ne 0) {
-            throw "Falló Inno Setup"
+            throw "Falló la creación del instalador"
           }
 
-      - name: Verificar archivos
+      # 9. Verificar instalador y plugin
+      - name: Verificar archivos finales
         shell: pwsh
         run: |
-          if (-not (Test-Path "dist/La-Pauta-Tune-Setup.exe")) {
-            throw "No se generó el instalador"
+          $installer = "dist/La-Pauta-Tune-Setup.exe"
+
+          if (!(Test-Path $installer)) {
+            throw "No se generó La-Pauta-Tune-Setup.exe"
           }
 
+          $plugins = Get-ChildItem "dist" -Directory -Filter "*.vst3"
+
+          if (!$plugins) {
+            throw "No se encontró el VST3 final"
+          }
+
+          Write-Host "ARCHIVOS GENERADOS:"
           Get-ChildItem dist
 
+      # 10. Publicar instalador
       - name: Subir instalador
         uses: actions/upload-artifact@v4
         with:
@@ -90,9 +147,11 @@ jobs:
           path: dist/La-Pauta-Tune-Setup.exe
           if-no-files-found: error
 
+      # 11. Publicar plugin VST3
       - name: Subir plugin VST3
         uses: actions/upload-artifact@v4
         with:
           name: La-Pauta-Tune-VST3-Windows
           path: dist/*.vst3
           if-no-files-found: error
+          
