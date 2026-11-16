@@ -25,6 +25,9 @@ juce_add_plugin(LaPautaTune
     PRODUCT_NAME "La Pauta Tune"
 )
 
+# --- ESTA LÍNEA GENERA EL JuceHeader.h AUTOMÁTICAMENTE ---
+juce_generate_juce_header(LaPautaTune)
+
 target_sources(LaPautaTune PRIVATE
     Source/Engine.cpp
     Source/Engine.h
