@@ -36,10 +36,24 @@ public:
     void getStateInformation (juce::MemoryBlock& destData) override;
     void setStateInformation (const void* data, int sizeInBytes) override;
 
-    // Macro de referencia débil
+    // Métodos requeridos por la interfaz y controles
+    void loadFile (const juce::File& file);
+    bool hasProject() const;
+    void setPlaying (bool playing);
+    void setPlayPositionSeconds (double seconds);
+    void exportCorrectedAudio (const juce::File& file);
+    void lockScale (bool locked);
+    void centerNotes();
+    void resetNotes();
+    void undo();
+    void requestRender();
+
+    int key = 0;
+    int scaleType = 0;
+    int gridIndex = 0;
+
     JUCE_DECLARE_WEAK_REFERENCEABLE (LaPautaTuneProcessor)
 
-    // --- VARIABLES Y HILOS REQUERIDOS POR TU CÓDIGO ---
     juce::CriticalSection bufLock;
     juce::AudioBuffer<float> playBuf;
     
