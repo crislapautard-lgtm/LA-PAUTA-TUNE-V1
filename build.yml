@@ -1,0 +1,109 @@
+name: Build LA PAUTA TUNE V1 - Windows Installer
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main, master ]
+
+jobs:
+  build-windows:
+    runs-on: windows-2022
+
+    steps:
+      - name: Descargar repositorio
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Configurar compilación x64
+        shell: pwsh
+        run: |
+          cmake -S . -B build -A x64 -DCMAKE_BUILD_TYPE=Release
+
+      - name: Compilar Standalone y VST3
+        shell: pwsh
+        run: |
+          cmake --build build --config Release --parallel
+
+      - name: Preparar archivos para el instalador
+        shell: pwsh
+        run: |
+          $stage = Join-Path $PWD "installer\payload"
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+
+          $standalone = Get-ChildItem -Path "build" -Recurse -File -Filter "*.exe" |
+            Where-Object { $_.FullName -match "Standalone" } |
+            Select-Object -First 1
+
+          if (-not $standalone) {
+            throw "No se encontró el ejecutable Standalone. Revisa el nombre del target y la salida de JUCE."
+          }
+
+          Copy-Item $standalone.FullName (Join-Path $stage "LaPautaTuneV1.exe") -Force
+
+          $vst3 = Get-ChildItem -Path "build" -Recurse -Directory -Filter "*.vst3" |
+            Select-Object -First 1
+
+          if ($vst3) {
+            Copy-Item $vst3.FullName (Join-Path $stage "LaPautaTuneV1.vst3") -Recurse -Force
+          } else {
+            Write-Host "AVISO: No se encontró el paquete VST3; se instalará solo Standalone."
+          }
+
+          Get-ChildItem $stage -Recurse
+
+      - name: Instalar Inno Setup
+        shell: pwsh
+        run: choco install innosetup --yes --no-progress
+
+      - name: Crear script del instalador
+        shell: pwsh
+        run: |
+          @'
+          [Setup]
+          AppId={{A4D3B2C1-7E6F-4A11-9D20-5500A1B2C3D4}
+          AppName=LA PAUTA TUNE V1
+          AppVersion=1.0.0
+          AppPublisher=LA PAUTA
+          DefaultDirName={autopf}\LA PAUTA TUNE V1
+          DefaultGroupName=LA PAUTA TUNE V1
+          OutputDir=installer-output
+          OutputBaseFilename=LA_PAUTA_TUNE_V1_Windows_x64_Setup
+          ArchitecturesInstallIn64BitMode=x64
+          ArchitecturesAllowed=x64
+          Compression=lzma2
+          SolidCompression=yes
+          WizardStyle=modern
+          UninstallDisplayIcon={app}\LaPautaTuneV1.exe
+
+          [Tasks]
+          Name: "desktopicon"; Description: "Crear acceso directo en el escritorio"; Flags: unchecked
+
+          [Files]
+          Source: "installer\payload\LaPautaTuneV1.exe"; DestDir: "{app}"; Flags: ignoreversion
+          Source: "installer\payload\LaPautaTuneV1.vst3\*"; DestDir: "{commoncf}\VST3\LaPautaTuneV1.vst3"; Flags: ignoreversion recursesubdirs createallsubdirs; Check: VST3Exists
+
+          [Icons]
+          Name: "{group}\LA PAUTA TUNE V1"; Filename: "{app}\LaPautaTuneV1.exe"
+          Name: "{autodesktop}\LA PAUTA TUNE V1"; Filename: "{app}\LaPautaTuneV1.exe"; Tasks: desktopicon
+
+          [Code]
+          function VST3Exists: Boolean;
+          begin
+            Result := DirExists(ExpandConstant('{src}\installer\payload\LaPautaTuneV1.vst3'));
+          end;
+          '@ | Set-Content -Path "installer\LaPautaTuneV1.iss" -Encoding ASCII
+
+      - name: Construir instalador EXE
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path "installer-output" | Out-Null
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "installer\LaPautaTuneV1.iss"
+          if ($LASTEXITCODE -ne 0) { throw "Falló la creación del instalador." }
+
+      - name: Publicar instalador para descargar
+        uses: actions/upload-artifact@v4
+        with:
+          name: LA-PAUTA-TUNE-V1-Windows-Installer
+          path: installer-output/LA_PAUTA_TUNE_V1_Windows_x64_Setup.exe
+          if-no-files-found: error
