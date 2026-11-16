@@ -1,51 +1,64 @@
 
-; ==========================================
-; LA PAUTA TUNE - WINDOWS VST3 INSTALLER
-; Version 1.0.0
-; ==========================================
+cmake_minimum_required(VERSION 3.22)
 
-#define MyAppName "La Pauta Tune"
-#define MyAppVersion "1.0.0"
-#define MyAppPublisher "La Pauta"
-#define VstFolder "La Pauta Tune.vst3"
+project(LaPautaTune VERSION 1.0.0 LANGUAGES C CXX)
 
-[Setup]
-AppId={{6B1F6C2E-3D54-4B7A-9E0A-4C7A2F9D1A11}
-AppName={#MyAppName}
-AppVersion={#MyAppVersion}
-AppPublisher={#MyAppPublisher}
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
 
-DefaultDirName={commoncf64}\VST3
-DisableDirPage=yes
-DisableProgramGroupPage=yes
-DirExistsWarning=no
+set(CMAKE_MSVC_RUNTIME_LIBRARY
+    "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
-PrivilegesRequired=admin
+include(FetchContent)
 
-ArchitecturesAllowed=x64compatible
-ArchitecturesInstallIn64BitMode=x64compatible
+FetchContent_Declare(
+    JUCE
+    GIT_REPOSITORY https://github.com/juce-framework/JUCE.git
+    GIT_TAG 8.0.6
+    GIT_SHALLOW ON
+)
 
-OutputDir=..\dist
-OutputBaseFilename=La-Pauta-Tune-Setup
+FetchContent_MakeAvailable(JUCE)
 
-Compression=lzma2
-SolidCompression=yes
-WizardStyle=modern
+juce_add_plugin(LaPautaTune
+    COMPANY_NAME "La Pauta"
+    PLUGIN_MANUFACTURER_CODE LaPa
+    PLUGIN_CODE Ptun
+    FORMATS VST3
+    PRODUCT_NAME "La Pauta Tune"
+    IS_SYNTH FALSE
+    NEEDS_MIDI_INPUT FALSE
+    NEEDS_MIDI_OUTPUT FALSE
+    EDITOR_WANTS_KEYBOARD_FOCUS TRUE
+    COPY_PLUGIN_AFTER_BUILD FALSE
+    VST3_CATEGORIES Fx Pitch Shift
+)
 
-UninstallDisplayName={#MyAppName}
-CreateUninstallRegKey=yes
+juce_generate_juce_header(LaPautaTune)
 
-CloseApplications=no
-RestartApplications=no
+target_sources(LaPautaTune PRIVATE
+    Source/Engine.cpp
+    Source/PluginProcessor.cpp
+    Source/PluginEditor.cpp
+    Source/PianoRoll.cpp
+)
 
-[Languages]
-Name: "spanish"; MessagesFile: "compiler:Languages\Spanish.isl"
+target_compile_definitions(LaPautaTune PUBLIC
+    JUCE_WEB_BROWSER=0
+    JUCE_USE_CURL=0
+    JUCE_VST3_CAN_REPLACE_VST2=0
+    JUCE_DISPLAY_SPLASH_SCREEN=0
+    JUCE_REPORT_APP_USAGE=0
+)
 
-[Files]
-Source: "..\dist\{#VstFolder}\*"; DestDir: "{commoncf64}\VST3\{#VstFolder}"; Flags: ignoreversion recursesubdirs createallsubdirs
-
-[Messages]
-FinishedLabel=La Pauta Tune se instaló correctamente. Abre tu DAW y vuelve a escanear los plugins VST3 para encontrarlo.
-
-[UninstallDelete]
-Type: filesandordirs; Name: "{commoncf64}\VST3\{#VstFolder}"
+target_link_libraries(LaPautaTune
+    PRIVATE
+        juce::juce_audio_utils
+        juce::juce_audio_formats
+        juce::juce_dsp
+    PUBLIC
+        juce::juce_recommended_config_flags
+        juce::juce_recommended_lto_flags
+        juce::juce_recommended_warning_flags
+)
