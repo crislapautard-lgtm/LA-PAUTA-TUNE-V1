@@ -36,8 +36,22 @@ public:
     void getStateInformation (juce::MemoryBlock& destData) override;
     void setStateInformation (const void* data, int sizeInBytes) override;
 
-    // --- MACRO AÑADIDA PARA SOLUCIONAR EL ERROR DE WEAKREFERENCE ---
+    // Macro de referencia débil
     JUCE_DECLARE_WEAK_REFERENCEABLE (LaPautaTuneProcessor)
+
+    // --- VARIABLES Y HILOS REQUERIDOS POR TU CÓDIGO ---
+    juce::CriticalSection bufLock;
+    juce::AudioBuffer<float> playBuf;
+    
+    double hostSampleRate = 44100.0;
+    double srcSampleRate = 44100.0;
+    double bpm = 120.0;
+
+    bool internalPlaying = false;
+    double internalPos = 0.0;
+
+    std::unique_ptr<juce::Thread> renderThread;
+    std::unique_ptr<juce::Thread> analysisThread;
 
     bool mono = false;
 
