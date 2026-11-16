@@ -1,352 +1,62 @@
 #include "PluginEditor.h"
-
-namespace
-{
-    void setupLabel (juce::Label& l, const juce::String& text, juce::Justification j = juce::Justification::centredRight)
-    {
-        l.setText (text, juce::dontSendNotification);
-        l.setJustificationType (j);
-        l.setInterceptsMouseClicks (false, false);
-        l.setFont (juce::FontOptions (13.0f));
-    }
+static void styleBtn(juce::TextButton& b,bool active=false){ b.setColour(juce::TextButton::buttonColourId, active?juce::Colour(0xffe5953d):juce::Colour(0xff2a3642)); b.setColour(juce::TextButton::textColourOffId, active?juce::Colours::black:juce::Colours::white); b.setColour(juce::TextButton::buttonOnColourId,juce::Colour(0xffe5953d)); }
+static void styleBox(juce::ComboBox& b){ b.setColour(juce::ComboBox::backgroundColourId,juce::Colour(0xff141c22)); b.setColour(juce::ComboBox::textColourId,juce::Colours::white); b.setColour(juce::ComboBox::arrowColourId,juce::Colour(0xffe5953d)); }
+LaPautaTuneEditor::LaPautaTuneEditor(LaPautaTuneProcessor& p):juce::AudioProcessorEditor(&p),proc(p),roll(p){
+ setSize(1100,650); setResizable(true,true); setResizeLimits(800,450,1800,1000);
+ for(auto* b:{&loadBtn,&playBtn,&stopBtn,&exportBtn,&tonoBtn,&tiempoBtn,&corteBtn,&lockBtn,&centerBtn,&resetBtn,&undoBtn}){ addAndMakeVisible(b); styleBtn(*b); }
+ styleBtn(tonoBtn,true); styleBtn(lockBtn,true);
+ for(auto* c:{&keyBox,&scaleBox,&gridBox,&bpmBox}){ addAndMakeVisible(c); styleBox(*c); }
+ const char* keys[]={"C","C#","D","D#","E","F","F#","G","G#","A","A#","B"};
+ for(int i=0;i<12;i++) keyBox.addItem(keys[i],i+1); keyBox.setSelectedId(proc.key+1,juce::dontSendNotification);
+ for(auto &s:pauta::scaleTypes()) scaleBox.addItem(s.name,scaleBox.getNumItems()+1); scaleBox.setSelectedId(proc.scaleType+1,juce::dontSendNotification);
+ gridBox.addItem("Off",1); gridBox.addItem("1/1",2); gridBox.addItem("1/2",3); gridBox.addItem("1/4",4); gridBox.addItem("1/8",5); gridBox.addItem("1/16",6); gridBox.setSelectedId(proc.gridIndex+1,juce::dontSendNotification);
+ for(double b: {60.,70.,80.,88.,90.,100.,110.,120.,130.,140.}) bpmBox.addItem(juce::String(b,1),bpmBox.getNumItems()+1); bpmBox.setText(juce::String(proc.bpm.load(),1),juce::dontSendNotification); bpmBox.setEditableText(true);
+ addAndMakeVisible(zoomSlider); zoomSlider.setSliderStyle(juce::Slider::LinearHorizontal); zoomSlider.setTextBoxStyle(juce::Slider::NoTextBox,false,0,0); zoomSlider.setRange(15,1500,1); zoomSlider.setValue(100); zoomSlider.setColour(juce::Slider::thumbColourId,juce::Colours::white); zoomSlider.setColour(juce::Slider::trackColourId,juce::Colour(0xffe5953d));
+ for(auto* k:{&centroKnob,&variacionKnob}){ addAndMakeVisible(k); k->setSliderStyle(juce::Slider::RotaryVerticalDrag); k->setTextBoxStyle(juce::Slider::NoTextBox,false,0,0); k->setRange(0,2,0.01); k->setValue(1.0); k->setColour(juce::Slider::rotarySliderFillColourId,juce::Colour(0xffe5953d)); k->setColour(juce::Slider::thumbColourId,juce::Colours::white); k->setDoubleClickReturnValue(true,1.0); }
+ addAndMakeVisible(centroLabel); centroLabel.setText("100 %\nCentro",juce::dontSendNotification); centroLabel.setJustificationType(juce::Justification::centred); centroLabel.setColour(juce::Label::textColourId,juce::Colours::white);
+ addAndMakeVisible(variacionLabel); variacionLabel.setText("100 %\nVariación",juce::dontSendNotification); variacionLabel.setJustificationType(juce::Justification::centred); variacionLabel.setColour(juce::Label::textColourId,juce::Colours::white);
+ addAndMakeVisible(titleLabel); titleLabel.setFont(juce::FontOptions(18.f,juce::Font::bold)); titleLabel.setColour(juce::Label::textColourId,juce::Colour(0xffe5953d)); titleLabel.setJustificationType(juce::Justification::centredRight);
+ addAndMakeVisible(statusLabel); statusLabel.setColour(juce::Label::textColourId,juce::Colour(0xffc9d1d9));
+ addAndMakeVisible(dragBtn); dragBtn.setColour(juce::TextButton::buttonColourId,juce::Colour(0xff2a3642)); dragBtn.setColour(juce::TextButton::textColourOffId,juce::Colours::white);
+ addAndMakeVisible(roll);
+ roll.onZoomChanged=[this](double v){ zoomSlider.setValue(v,juce::dontSendNotification); };
+ roll.onSelectionChanged=[this]{ refreshFromProcessor(); };
+ loadBtn.onClick=[this]{ chooser.launchAsync(juce::FileBrowserComponent::openMode|juce::FileBrowserComponent::canSelectFiles,[this](const juce::FileChooser& c){ if(c.getResult().existsAsFile()) proc.loadFile(c.getResult()); }); };
+ playBtn.onClick=[this]{ if(proc.hasProject()){ proc.setPlaying(true); } };
+ stopBtn.onClick=[this]{ proc.setPlaying(false); proc.setPlayPositionSeconds(0); };
+ exportBtn.onClick=[this]{ proc.exportCorrectedAudio(); };
+ tonoBtn.onClick=[this]{ setTool(PianoRoll::Tool::pitch); }; tiempoBtn.onClick=[this]{ setTool(PianoRoll::Tool::time); }; corteBtn.onClick=[this]{ setTool(PianoRoll::Tool::cut); };
+ lockBtn.onClick=[this]{ proc.lockScale=!proc.lockScale; styleBtn(lockBtn,proc.lockScale); roll.repaint(); };
+ centerBtn.onClick=[this]{ proc.centerNotes(); }; resetBtn.onClick=[this]{ proc.resetNotes(); }; undoBtn.onClick=[this]{ proc.undo(); };
+ keyBox.onChange=[this]{ proc.key=keyBox.getSelectedId()-1; proc.requestRender(); roll.repaint(); };
+ scaleBox.onChange=[this]{ proc.scaleType=scaleBox.getSelectedId()-1; proc.requestRender(); roll.repaint(); };
+ gridBox.onChange=[this]{ proc.gridIndex=gridBox.getSelectedId()-1; roll.repaint(); };
+ bpmBox.onChange=[this]{ auto t=bpmBox.getText().getDoubleValue(); if(t>20) proc.bpm.store(t); };
+ zoomSlider.onValueChange=[this]{ roll.setPixelsPerSecond(zoomSlider.getValue()); };
+ centroKnob.onValueChange=[this]{ proc.centerAmount=(float)centroKnob.getValue(); centroLabel.setText(juce::String((int)std::round(centroKnob.getValue()*100))+" %\nCentro",juce::dontSendNotification); };
+ variacionKnob.onValueChange=[this]{ proc.variationAmount=(float)variacionKnob.getValue(); proc.applyVariation(proc.variationAmount); variacionLabel.setText(juce::String((int)std::round(variacionKnob.getValue()*100))+" %\nVariación",juce::dontSendNotification); };
+ dragBtn.onClick=[this]{ auto f=proc.exportForDragAndDrop(); if(f.existsAsFile()){ juce::StringArray files; files.add(f.getFullPathName()); // JUCE drag: usar DragAndDropContainer en el editor si se necesita
+  juce::DragAndDropContainer::findParentDragContainerFor(this)->startDragging(juce::var(files),this,juce::Image(),true); } };
+ proc.addChangeListener(this); startTimerHz(30);
 }
-
-//==============================================================================
-LaPautaTuneEditor::LaPautaTuneEditor (LaPautaTuneProcessor& p)
-    : juce::AudioProcessorEditor (&p), proc (p), roll (p), dragIcon (p)
-{
-    setLookAndFeel (&laf);
-
-    addAndMakeVisible (roll);
-    addAndMakeVisible (dragIcon);
-
-    for (auto* b : { &loadBtn, &playBtn, &stopBtn, &exportBtn, &toolPitchBtn, &toolTimeBtn, &toolCutBtn,
-                     &lockBtn, &centerBtn, &resetBtn, &undoBtn })
-        addAndMakeVisible (b);
-
-    for (auto* c : { &keyBox, &scaleBox, &gridBox })
-        addAndMakeVisible (c);
-
-    for (auto* s : { &centerKnob, &variationKnob, &bpmSlider, &zoomSlider })
-        addAndMakeVisible (s);
-
-    for (auto* l : { &keyLabel, &scaleLabel, &gridLabel, &bpmLabel, &zoomLabel, &centerLabel, &variationLabel, &statusLabel })
-        addAndMakeVisible (l);
-
-    setupLabel (keyLabel, "Tonalidad");
-    setupLabel (scaleLabel, "Escala");
-    setupLabel (gridLabel, "Rejilla");
-    setupLabel (bpmLabel, "BPM");
-    setupLabel (zoomLabel, "Zoom");
-    setupLabel (centerLabel, "Centro", juce::Justification::centred);
-    setupLabel (variationLabel, T ("Variación"), juce::Justification::centred);
-    setupLabel (statusLabel, "", juce::Justification::centredLeft);
-    statusLabel.setColour (juce::Label::textColourId, juce::Colour (0xff9fb0bf));
-
-    // --- carga / reproducción
-    loadBtn.onClick = [this] { chooseFile(); };
-    loadBtn.setTooltip (T ("Abrir un audio de voz (también puedes arrastrarlo a la ventana)"));
-
-    playBtn.onClick = [this]
-    {
-        if (proc.isPlayingInternal())
-            proc.pausePlayback();
-        else
-            proc.play();
-    };
-    stopBtn.onClick = [this] { proc.stopPlayback(); };
-
-    exportBtn.setTooltip (T ("Guarda la voz afinada como WAV en Documentos/La Pauta Tune"));
-    exportBtn.onClick = [this]
-    {
-        if (! proc.hasProject())
-            return;
-        const auto f = proc.exportCorrectedAudio();
-        if (f.existsAsFile())
-            f.revealToUser();
-    };
-
-    // --- herramientas
-    for (auto* b : { &toolPitchBtn, &toolTimeBtn, &toolCutBtn })
-    {
-        b->setClickingTogglesState (true);
-        b->setRadioGroupId (1001);
-    }
-    toolPitchBtn.setToggleState (true, juce::dontSendNotification);
-    toolPitchBtn.setTooltip (T ("Arrastra una nota hacia arriba o abajo para cambiar su tono. Doble clic: llevarla a la escala"));
-    toolTimeBtn.setTooltip (T ("Arrastra una nota de lado para moverla en el tiempo (se pega a la rejilla)"));
-    toolCutBtn.setTooltip (T ("Haz clic sobre una nota para partirla en dos (se pega a la rejilla)"));
-    toolPitchBtn.onClick = [this] { roll.setTool (PianoRoll::Tool::pitch); };
-    toolTimeBtn.onClick  = [this] { roll.setTool (PianoRoll::Tool::time); };
-    toolCutBtn.onClick   = [this] { roll.setTool (PianoRoll::Tool::cut); };
-    roll.setTool (PianoRoll::Tool::pitch);
-
-    // --- escala
-    for (int i = 0; i < 12; ++i)
-        keyBox.addItem (pauta::noteNames()[i], i + 1);
-    keyBox.onChange = [this] { proc.key = keyBox.getSelectedId() - 1; roll.repaint(); };
-    keyBox.setTooltip (T ("Tonalidad del beat"));
-
-    const auto& types = pauta::scaleTypes();
-    for (size_t i = 0; i < types.size(); ++i)
-        scaleBox.addItem (T (types[i].name), (int) i + 1);
-    scaleBox.onChange = [this] { proc.scaleType = scaleBox.getSelectedId() - 1; roll.repaint(); };
-    scaleBox.setTooltip (T ("Escala del beat: las voces se llevan a las notas de esta escala"));
-
-    lockBtn.setClickingTogglesState (true);
-    lockBtn.setTooltip (T ("Bloquea las notas que no están en la escala: no podrás arrastrar una nota hasta ellas"));
-    lockBtn.onClick = [this] { proc.lockScale = lockBtn.getToggleState(); roll.repaint(); };
-
-    centerBtn.setTooltip (T ("Lleva las notas (las seleccionadas, o todas) a la nota más cercana de la escala"));
-    centerBtn.onClick = [this]
-    {
-        if (! proc.hasProject())
-            return;
-        proc.pushUndo();
-        proc.centerNotes();
-        roll.repaint();
-    };
-
-    resetBtn.setTooltip (T ("Devuelve las notas a como se cantaron"));
-    resetBtn.onClick = [this]
-    {
-        if (! proc.hasProject())
-            return;
-        proc.pushUndo();
-        proc.resetNotes();
-        refreshVariationKnob();
-        roll.repaint();
-    };
-
-    undoBtn.onClick = [this] { proc.undo(); roll.repaint(); };
-
-    // --- rejilla / bpm / zoom
-    const char* gridNames[7] = { "1/1", "1/2", "1/4", "1/8", "1/16", "1/32", "Sin rejilla" };
-    for (int i = 0; i < 7; ++i)
-        gridBox.addItem (gridNames[i], i + 1);
-    gridBox.onChange = [this] { proc.gridIndex = gridBox.getSelectedId() - 1; roll.repaint(); };
-    gridBox.setTooltip (T ("Rejilla para mover y cortar notas"));
-
-    bpmSlider.setSliderStyle (juce::Slider::LinearBar);
-    bpmSlider.setRange (40.0, 300.0, 0.01);
-    bpmSlider.setNumDecimalPlacesToDisplay (1);
-    bpmSlider.setTextBoxIsEditable (true);
-    bpmSlider.setTooltip (T ("Tempo del proyecto (se toma del DAW si lo envía). Doble clic para escribirlo"));
-    bpmSlider.onValueChange = [this] { proc.bpm.store (bpmSlider.getValue()); roll.repaint(); };
-
-    zoomSlider.setSliderStyle (juce::Slider::LinearHorizontal);
-    zoomSlider.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
-    zoomSlider.setRange (15.0, 600.0, 0.1);
-    zoomSlider.setSkewFactorFromMidPoint (100.0);
-    zoomSlider.setValue (100.0, juce::dontSendNotification);
-    zoomSlider.onValueChange = [this] { roll.setPixelsPerSecond (zoomSlider.getValue()); };
-    roll.onZoomChanged = [this] (double pps) { zoomSlider.setValue (pps, juce::dontSendNotification); };
-
-    // --- perillas
-    centerKnob.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
-    centerKnob.setRange (0.0, 100.0, 1.0);
-    centerKnob.setValue (100.0, juce::dontSendNotification);
-    centerKnob.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 64, 16);
-    centerKnob.setTextValueSuffix (" %");
-    centerKnob.setTooltip (T ("Fuerza del botón Centrar: 100 % = nota exacta de la escala, menos = más natural"));
-    centerKnob.onValueChange = [this] { proc.centerAmount = (float) centerKnob.getValue() / 100.0f; };
-
-    variationKnob.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
-    variationKnob.setRange (0.0, 100.0, 1.0);
-    variationKnob.setValue (100.0, juce::dontSendNotification);
-    variationKnob.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 64, 16);
-    variationKnob.setTextValueSuffix (" %");
-    variationKnob.setTooltip (T ("Variación dentro de la nota (vibrato, deriva). 0 % = nota plana. Afecta a las notas seleccionadas o a todas"));
-    variationKnob.onDragStart = [this] { proc.pushUndo(); };
-    variationKnob.onValueChange = [this]
-    {
-        proc.applyVariation ((float) variationKnob.getValue() / 100.0f);
-        roll.repaint();
-    };
-
-    roll.onSelectionChanged = [this] { refreshVariationKnob(); };
-
-    setResizable (true, true);
-    setResizeLimits (940, 480, 2600, 1500);
-    setSize (1060, 640);
-
-    proc.addChangeListener (this);
-    startTimerHz (30);
-    refreshFromProcessor();
-    roll.projectChanged();
-    updateStatus();
+LaPautaTuneEditor::~LaPautaTuneEditor(){ proc.removeChangeListener(this); stopTimer(); }
+void LaPautaTuneEditor::paint(juce::Graphics& g){ g.fillAll(juce::Colour(0xff1b232b)); g.setColour(juce::Colours::white); g.setFont(juce::FontOptions(13.f)); g.drawText("Tonalidad",10,52,80,24,juce::Justification::centredLeft); g.drawText("Escala",168,52,55,24,juce::Justification::centredLeft); g.drawText("Rejilla",10,88,60,24,juce::Justification::centredLeft); g.drawText("BPM",178,88,40,24,juce::Justification::centredLeft); g.drawText("Zoom",302,88,40,24,juce::Justification::centredLeft); }
+void LaPautaTuneEditor::resized(){
+ auto a=getLocalBounds(); auto top=a.removeFromTop(124);
+ // Fila 1
+ loadBtn.setBounds(10,8,110,28); playBtn.setBounds(126,8,62,28); stopBtn.setBounds(194,8,62,28); exportBtn.setBounds(262,8,118,28);
+ tonoBtn.setBounds(400,8,72,28); tiempoBtn.setBounds(478,8,82,28); corteBtn.setBounds(566,8,72,28);
+ centroKnob.setBounds(getWidth()-280,4,58,58); variacionKnob.setBounds(getWidth()-200,4,58,58); titleLabel.setBounds(getWidth()-140,4,130,24); dragBtn.setBounds(getWidth()-132,32,120,60);
+ centroLabel.setBounds(getWidth()-280,62,58,32); variacionLabel.setBounds(getWidth()-200,62,58,32);
+ // Fila 2
+ keyBox.setBounds(88,52,68,24); scaleBox.setBounds(228,52,158,24); lockBtn.setBounds(400,52,142,28); centerBtn.setBounds(548,52,82,28); resetBtn.setBounds(636,52,104,28); undoBtn.setBounds(746,52,90,28);
+ // Fila 3
+ gridBox.setBounds(72,88,88,24); bpmBox.setBounds(220,88,88,24); zoomSlider.setBounds(346,88,180,24); statusLabel.setBounds(540,88,getWidth()-820,24);
+ roll.setBounds(0,124,getWidth(),getHeight()-124);
 }
-
-LaPautaTuneEditor::~LaPautaTuneEditor()
-{
-    stopTimer();
-    proc.removeChangeListener (this);
-    setLookAndFeel (nullptr);
-}
-
-//==============================================================================
-void LaPautaTuneEditor::paint (juce::Graphics& g)
-{
-    g.fillAll (juce::Colour (0xff262f38));
-
-    g.setColour (juce::Colour (0xff10151b));
-    g.fillRect (0, 111, getWidth(), 1);
-
-    g.setColour (juce::Colour (0xffe5953d));
-    g.setFont (juce::FontOptions (13.0f, juce::Font::bold));
-    g.drawText ("LA PAUTA  TUNE", getWidth() - 140, 2, 130, 14, juce::Justification::centredRight);
-}
-
-void LaPautaTuneEditor::resized()
-{
-    auto r = getLocalBounds();
-    auto header = r.removeFromTop (112).reduced (10, 6);
-    roll.setBounds (r);
-
-    auto right = header.removeFromRight (290);
-    header.removeFromRight (10);
-
-    auto row1 = header.removeFromTop (28);
-    header.removeFromTop (4);
-    auto row2 = header.removeFromTop (28);
-    header.removeFromTop (4);
-    auto row3 = header.removeFromTop (28);
-
-    auto place = [] (juce::Rectangle<int>& row, juce::Component& c, int w, int gap = 6)
-    {
-        c.setBounds (row.removeFromLeft (w));
-        row.removeFromLeft (gap);
-    };
-
-    place (row1, loadBtn, 100);
-    place (row1, playBtn, 54, 4);
-    place (row1, stopBtn, 54);
-    place (row1, exportBtn, 110, 22);
-    place (row1, toolPitchBtn, 66, 2);
-    place (row1, toolTimeBtn, 66, 2);
-    place (row1, toolCutBtn, 66);
-
-    place (row2, keyLabel, 64, 4);
-    place (row2, keyBox, 64, 10);
-    place (row2, scaleLabel, 46, 4);
-    place (row2, scaleBox, 150, 14);
-    place (row2, lockBtn, 124);
-    place (row2, centerBtn, 72);
-    place (row2, resetBtn, 92);
-    place (row2, undoBtn, 76);
-
-    place (row3, gridLabel, 46, 4);
-    place (row3, gridBox, 100, 14);
-    place (row3, bpmLabel, 34, 4);
-    place (row3, bpmSlider, 86, 14);
-    place (row3, zoomLabel, 40, 4);
-    place (row3, zoomSlider, 130, 14);
-    statusLabel.setBounds (row3);
-
-    centerKnob.setBounds (right.getX(), right.getY(), 84, 78);
-    variationKnob.setBounds (right.getX() + 90, right.getY(), 84, 78);
-    centerLabel.setBounds (right.getX(), right.getY() + 80, 84, 18);
-    variationLabel.setBounds (right.getX() + 90, right.getY() + 80, 84, 18);
-    dragIcon.setBounds (right.getRight() - 104, right.getY() + 14, 104, 90);
-}
-
-//==============================================================================
-void LaPautaTuneEditor::chooseFile()
-{
-    chooser = std::make_unique<juce::FileChooser> (T ("Elige la voz"),
-                                                   juce::File::getSpecialLocation (juce::File::userDocumentsDirectory),
-                                                   "*.wav;*.aif;*.aiff;*.flac;*.mp3;*.ogg");
-
-    chooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
-                          [this] (const juce::FileChooser& fc)
-    {
-        const auto f = fc.getResult();
-        if (f.existsAsFile())
-            proc.loadFile (f);
-    });
-}
-
-bool LaPautaTuneEditor::isInterestedInFileDrag (const juce::StringArray& files)
-{
-    for (const auto& f : files)
-    {
-        const auto ext = juce::File (f).getFileExtension().toLowerCase();
-        if (ext == ".wav" || ext == ".aif" || ext == ".aiff" || ext == ".flac" || ext == ".mp3" || ext == ".ogg")
-            return true;
-    }
-    return false;
-}
-
-void LaPautaTuneEditor::filesDropped (const juce::StringArray& files, int, int)
-{
-    for (const auto& f : files)
-        if (isInterestedInFileDrag (juce::StringArray (f)))
-        {
-            proc.loadFile (juce::File (f));
-            return;
-        }
-}
-
-//==============================================================================
-void LaPautaTuneEditor::changeListenerCallback (juce::ChangeBroadcaster*)
-{
-    roll.projectChanged();
-    refreshFromProcessor();
-    updateStatus();
-}
-
-void LaPautaTuneEditor::refreshFromProcessor()
-{
-    keyBox.setSelectedId (proc.key + 1, juce::dontSendNotification);
-    scaleBox.setSelectedId (proc.scaleType + 1, juce::dontSendNotification);
-    gridBox.setSelectedId (proc.gridIndex + 1, juce::dontSendNotification);
-    lockBtn.setToggleState (proc.lockScale, juce::dontSendNotification);
-    centerKnob.setValue ((double) proc.centerAmount * 100.0, juce::dontSendNotification);
-    bpmSlider.setValue (proc.bpm.load(), juce::dontSendNotification);
-    refreshVariationKnob();
-}
-
-void LaPautaTuneEditor::refreshVariationKnob()
-{
-    auto& notes = proc.getNotes();
-    const bool onlySel = proc.anySelected();
-
-    double sum = 0.0;
-    int count = 0;
-    for (const auto& n : notes)
-        if (! onlySel || n.selected)
-        {
-            sum += (double) n.variation;
-            ++count;
-        }
-
-    variationKnob.setValue (count > 0 ? 100.0 * sum / (double) count : 100.0, juce::dontSendNotification);
-}
-
-void LaPautaTuneEditor::updateStatus()
-{
-    if (proc.isLoading())
-        statusLabel.setText (T ("Analizando la voz… ") + juce::String ((int) (proc.getLoadProgress() * 100.0f)) + " %",
-                             juce::dontSendNotification);
-    else
-        statusLabel.setText (proc.getMessageText(), juce::dontSendNotification);
-}
-
-void LaPautaTuneEditor::timerCallback()
-{
-    roll.setPlayheadSeconds (proc.getPlayPositionSeconds());
-
-    const auto wanted = proc.isPlayingInternal() ? juce::String ("Pausa") : juce::String ("Play");
-    if (playBtn.getButtonText() != wanted)
-        playBtn.setButtonText (wanted);
-
-    if (proc.isLoading())
-        updateStatus();
-
-    const double b = proc.bpm.load();
-    if (std::abs (bpmSlider.getValue() - b) > 0.02 && ! bpmSlider.isMouseButtonDown())
-    {
-        bpmSlider.setValue (b, juce::dontSendNotification);
-        roll.repaint();
-    }
-}
+void LaPautaTuneEditor::changeListenerCallback(juce::ChangeBroadcaster*){ refreshFromProcessor(); }
+void LaPautaTuneEditor::timerCallback(){ roll.setPlayheadSeconds(proc.getPlayPosSeconds()); roll.projectChanged(); statusLabel.setText(proc.getMessage(),juce::dontSendNotification); }
+void LaPautaTuneEditor::refreshFromProcessor(){ keyBox.setSelectedId(proc.key+1,juce::dontSendNotification); scaleBox.setSelectedId(proc.scaleType+1,juce::dontSendNotification); repaint(); }
+void LaPautaTuneEditor::setTool(PianoRoll::Tool t){ roll.setTool(t); styleBtn(tonoBtn,t==PianoRoll::Tool::pitch); styleBtn(tiempoBtn,t==PianoRoll::Tool::time); styleBtn(corteBtn,t==PianoRoll::Tool::cut); }
+bool LaPautaTuneEditor::isInterestedInFileDrag(const juce::StringArray& f){ for(auto &s:f) if(s.endsWithIgnoreCase(".wav")||s.endsWithIgnoreCase(".mp3")||s.endsWithIgnoreCase(".flac")||s.endsWithIgnoreCase(".ogg")||s.endsWithIgnoreCase(".aiff")) return true; return false; }
+void LaPautaTuneEditor::filesDropped(const juce::StringArray& f,int,int){ if(f.size()>0) proc.loadFile(juce::File(f[0])); }
