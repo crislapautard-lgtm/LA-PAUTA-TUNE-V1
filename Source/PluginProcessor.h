@@ -1,142 +1,115 @@
 #pragma once
-
 #include <JuceHeader.h>
-#include <atomic>
-#include <memory>
-#include <vector>
-
-#include "Engine.h"
 #include "Scales.h"
+#include "Engine.h"
 
-inline juce::String T (const char* utf8) { return juce::String::fromUTF8 (utf8); }
-
-class LaPautaTuneProcessor : public juce::AudioProcessor,
-                             public juce::ChangeBroadcaster
+class LaPautaTuneProcessor : public juce::AudioProcessor, public juce::ChangeBroadcaster
 {
 public:
     LaPautaTuneProcessor();
     ~LaPautaTuneProcessor() override;
-
-    //==========================================================================
-    void prepareToPlay (double sampleRate, int samplesPerBlock) override;
+    void prepareToPlay(double, int) override;
     void releaseResources() override {}
-    bool isBusesLayoutSupported (const BusesLayout&) const override;
-    void processBlock (juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
-
+    bool isBusesLayoutSupported(const BusesLayout&) const override;
+    void processBlock(juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
     juce::AudioProcessorEditor* createEditor() override;
     bool hasEditor() const override { return true; }
-
     const juce::String getName() const override { return "La Pauta Tune"; }
-    bool acceptsMidi() const override { return true; }
+    bool acceptsMidi() const override { return false; }
     bool producesMidi() const override { return false; }
-    bool isMidiEffect() const override { return false; }
     double getTailLengthSeconds() const override { return 0.0; }
-
     int getNumPrograms() override { return 1; }
     int getCurrentProgram() override { return 0; }
-    void setCurrentProgram (int) override {}
-    const juce::String getProgramName (int) override { return {}; }
-    void changeProgramName (int, const juce::String&) override {}
+    void setCurrentProgram(int) override {}
+    const juce::String getProgramName(int) override { return {}; }
+    void changeProgramName(int, const juce::String&) override {}
+    void getStateInformation(juce::MemoryBlock&) override;
+    void setStateInformation(const void*, int) override;
 
-    void getStateInformation (juce::MemoryBlock&) override;
-    void setStateInformation (const void*, int) override;
-
-    //==========================================================================
-    // Proyecto (voz cargada)
-    void loadFile (const juce::File& file);
+    // Proyecto
+    void loadFile(const juce::File&);
+    void restoreState(const juce::String&, std::vector<pauta::Note>);
     bool hasProject() const { return mono != nullptr && track != nullptr; }
-    bool isLoading() const { return loading.load(); }
+    bool isLoading() const { return loading; }
     float getLoadProgress() const { return loadProgress.load(); }
+    juce::String getMessage() const { return messageText; }
     juce::String getProjectName() const { return projectName; }
-    juce::String getMessageText() const { return messageText; }
-    void setMessageText (const juce::String& s) { messageText = s; sendChangeMessage(); }
-
+    int getNumSourceSamples() const { return mono ? (int)mono->size() : 0; }
     double getSourceSampleRate() const { return srcSampleRate; }
-    int getNumSourceSamples() const { return mono != nullptr ? (int) mono->size() : 0; }
-    const std::vector<float>& getPeaks() const { return peaks; }
-    static constexpr int peakBlock = 128;
-
+    const std::vector<pauta::Note>& getNotes() const { return notes; }
     std::vector<pauta::Note>& getNotes() { return notes; }
-    const pauta::F0Track* getTrack() const { return track.get(); }
+    const std::vector<float>& getPeaks() const { return peaks; }
 
-    //==========================================================================
     // Edición
+    void requestRender();
     void pushUndo();
     void undo();
-    void requestRender();
-    bool cutNote (int index, int atSample);
-    void centerNotes();                       // Centrar a la escala elegida
-    void resetNotes();                        // volver al tono detectado
-    void applyVariation (float v);
+    bool cutNote(int index, int atSample);
+    void selectAll(bool);
     bool anySelected() const;
-    void selectAll (bool shouldSelect);
+    void centerNotes();
+    void resetNotes();
+    void applyVariation(float v);
+    juce::File exportCorrectedAudio();
+    juce::File exportForDragAndDrop(); // para "Arrastra al proyecto"
 
-    pauta::ScaleMask getScaleMask() const { return pauta::makeScaleMask (key, scaleType); }
+    // Transporte
+    void setPlaying(bool p) { internalPlaying = p; if(!p) internalPos.store(0); }
+    bool isInternalPlaying() const { return internalPlaying.load(); }
+    void setPlayPositionSeconds(double s);
+    double getPlayPosSeconds() const { return playPosSeconds.load(); }
 
-    juce::File exportCorrectedAudio();        // renderiza y guarda un WAV, devuelve el archivo
+    // Parámetros UI - iguales a la foto
+    int key = 9; // A
+    int scaleType = 1; // Menor natural
+    bool lockScale = true;
+    int gridIndex = 2; // 1/4
+    float centerAmount = 1.0f;
+    float variationAmount = 1.0f;
+    std::atomic<double> bpm { 88.0 };
 
-    //==========================================================================
-    // Reproducción
-    void play() { internalPlaying = true; }
-    void pausePlayback() { internalPlaying = false; }
-    void stopPlayback() { internalPlaying = false; setPlayPositionSeconds (0.0); }
-    bool isPlayingInternal() const { return internalPlaying.load(); }
-    void setPlayPositionSeconds (double s);
-    double getPlayPositionSeconds() const { return playPosSeconds.load(); }
-
-    //==========================================================================
-    // Ajustes (solo hilo de mensajes, salvo bpm)
-    int key = 0;
-    int scaleType = 0;
-    bool lockScale = false;
-    int gridIndex = 2;                        // 0:1/1 1:1/2 2:1/4 3:1/8 4:1/16 5:1/32 6:sin rejilla
-    float centerAmount = 1.0f;                // 0..1
-    std::atomic<double> bpm { 120.0 };
-
-    static double gridDivision (int gridIdx)  // 0 si no hay rejilla
-    {
-        static const double d[7] = { 1, 2, 4, 8, 16, 32, 0 };
-        return d[std::clamp (gridIdx, 0, 6)];
+    pauta::ScaleMask getScaleMask() const { return pauta::makeScaleMask(key, scaleType); }
+    static double gridDivision(int idx) {
+        static const double d[] = { 0.0, 1.0, 2.0, 4.0, 8.0, 16.0 };
+        return (idx >= 0 && idx < 6) ? d[idx] : 4.0;
     }
+    static constexpr int peakBlock = 256;
 
-private:
+    struct LoadResult;
     class AnalysisThread;
     class RenderThread;
-    struct LoadResult;
 
-    void installProject (LoadResult& r);
-    void restoreState (const juce::String& path, std::vector<pauta::Note> savedNotes);
+private:
+    void installProject(LoadResult&);
 
-    // datos del proyecto (hilo de mensajes)
-    std::shared_ptr<const std::vector<float>> mono;
-    std::shared_ptr<const pauta::F0Track> track;
+    std::shared_ptr<std::vector<float>> mono;
+    std::shared_ptr<pauta::F0Track> track;
     std::vector<pauta::Note> notes;
     std::vector<float> peaks;
-    std::vector<std::vector<pauta::Note>> undoStack;
-    juce::String projectName, projectPath, messageText;
     double srcSampleRate = 44100.0;
     int srcChannels = 1;
-    int loadGeneration = 0;
+    juce::String projectName, projectPath, messageText;
 
     std::atomic<bool> loading { false };
     std::atomic<float> loadProgress { 0.0f };
+    std::atomic<int> loadGeneration { 0 };
     std::unique_ptr<AnalysisThread> analysisThread;
+    std::unique_ptr<RenderThread> renderThread;
 
-    // render en segundo plano
+    // Render
     juce::CriticalSection renderLock;
     std::shared_ptr<const std::vector<float>> renderMono;
     std::shared_ptr<const pauta::F0Track> renderTrack;
     std::vector<pauta::Note> renderNotes;
-    std::unique_ptr<RenderThread> renderThread;
 
-    // reproducción
+    // Playback
     juce::SpinLock bufLock;
     std::shared_ptr<const std::vector<float>> playBuf;
+    std::atomic<double> internalPos { 0.0 };
     std::atomic<bool> internalPlaying { false };
-    std::atomic<double> internalPos { 0.0 };      // en muestras de la voz original
     std::atomic<double> playPosSeconds { 0.0 };
-    double hostSampleRate = 44100.0;
+    std::atomic<double> hostSampleRate { 44100.0 };
 
-    JUCE_DECLARE_WEAK_REFERENCEABLE (LaPautaTuneProcessor)
-    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (LaPautaTuneProcessor)
+    std::vector<std::vector<pauta::Note>> undoStack;
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(LaPautaTuneProcessor)
 };
