@@ -34,6 +34,8 @@ juce_add_plugin(LaPautaTune
     COPY_PLUGIN_AFTER_BUILD FALSE
 )
 
+juce_generate_juce_header(LaPautaTune)
+
 target_sources(LaPautaTune
     PRIVATE
         Source/PluginProcessor.cpp
