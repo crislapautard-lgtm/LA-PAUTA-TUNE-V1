@@ -80,3 +80,11 @@ void LaPautaTuneProcessor::centerNotes() {}
 void LaPautaTuneProcessor::resetNotes() {}
 void LaPautaTuneProcessor::undo() {}
 void LaPautaTuneProcessor::requestRender() {}
+
+// ==============================================================================
+// FUNCIÓN OBLIGATORIA DE JUCE PARA INSTANCIAR EL PLUGIN
+// ==============================================================================
+juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()
+{
+    return new LaPautaTuneProcessor();
+}
