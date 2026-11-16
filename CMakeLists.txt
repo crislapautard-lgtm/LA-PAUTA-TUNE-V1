@@ -1,64 +1,53 @@
-
 cmake_minimum_required(VERSION 3.22)
 
-project(LaPautaTune VERSION 1.0.0 LANGUAGES C CXX)
+project(LaPautaTune VERSION 1.0.0 LANGUAGES CXX C)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_CXX_EXTENSIONS OFF)
 
-set(CMAKE_MSVC_RUNTIME_LIBRARY
-    "MultiThreaded$<$<CONFIG:Debug>:Debug>")
-
-include(FetchContent)
-
-FetchContent_Declare(
-    JUCE
-    GIT_REPOSITORY https://github.com/juce-framework/JUCE.git
-    GIT_TAG 8.0.6
-    GIT_SHALLOW ON
-)
-
-FetchContent_MakeAvailable(JUCE)
+# Buscar el framework JUCE (asegúrate de tener JUCE configurado en tu sistema o como subdirectorio)
+find_package(JUCE CONFIG REQUIRED)
 
 juce_add_plugin(LaPautaTune
     COMPANY_NAME "La Pauta"
-    PLUGIN_MANUFACTURER_CODE LaPa
-    PLUGIN_CODE Ptun
-    FORMATS VST3
-    PRODUCT_NAME "La Pauta Tune"
+    BUNDLE_ID "com.lapauta.lapautatune"
     IS_SYNTH FALSE
-    NEEDS_MIDI_INPUT FALSE
-    NEEDS_MIDI_OUTPUT FALSE
+    IS_MIDI_EFFECT FALSE
     EDITOR_WANTS_KEYBOARD_FOCUS TRUE
-    COPY_PLUGIN_AFTER_BUILD FALSE
-    VST3_CATEGORIES Fx Pitch Shift
+    PLUGIN_MANUFACTURER_CODE "Lapt"
+    PLUGIN_CODE "Lptn"
+    FORMATS VST3 Standalone
+    PRODUCT_NAME "La Pauta Tune"
 )
 
-juce_generate_juce_header(LaPautaTune)
-
+# Añadir todos tus archivos fuente y cabeceras
 target_sources(LaPautaTune PRIVATE
-    Source/Engine.cpp
-    Source/PluginProcessor.cpp
-    Source/PluginEditor.cpp
-    Source/PianoRoll.cpp
+    Engine.cpp
+    Engine.h
+    Scales.h
+    PianoRoll.cpp
+    PianoRoll.h
+    PluginProcessor.cpp
+    PluginProcessor.h
+    PluginEditor.cpp
+    PluginEditor.h
 )
 
 target_compile_definitions(LaPautaTune PUBLIC
     JUCE_WEB_BROWSER=0
     JUCE_USE_CURL=0
     JUCE_VST3_CAN_REPLACE_VST2=0
-    JUCE_DISPLAY_SPLASH_SCREEN=0
-    JUCE_REPORT_APP_USAGE=0
 )
 
-target_link_libraries(LaPautaTune
-    PRIVATE
-        juce::juce_audio_utils
-        juce::juce_audio_formats
-        juce::juce_dsp
+target_link_libraries(LaPautaTune PRIVATE
+    juce::juce_audio_utils
+    juce::juce_audio_processors
+    juce::juce_gui_basics
+    juce::juce_graphics
+    juce::juce_data_structures
+    juce::juce_events
+    juce::juce_core
     PUBLIC
-        juce::juce_recommended_config_flags
-        juce::juce_recommended_lto_flags
-        juce::juce_recommended_warning_flags
+    juce::juce_recommended_config_flags
+    juce::juce_recommended_warning_flags
 )
