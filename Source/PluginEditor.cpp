@@ -247,7 +247,7 @@ void LaPautaTuneEditor::resized()
     variationKnob.setBounds (right.getX() + 90, right.getY(), 84, 78);
     centerLabel.setBounds (right.getX(), right.getY() + 80, 84, 18);
     variationLabel.setBounds (right.getX() + 90, right.getY() + 80, 84, 18);
-    dragIcon.setBounds (right.getRight() - 104, right.getY() + 4, 104, 96);
+    dragIcon.setBounds (right.getRight() - 104, right.getY() + 14, 104, 90);
 }
 
 //==============================================================================

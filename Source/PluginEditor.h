@@ -76,7 +76,7 @@ public:
 
         g.setColour (juce::Colour (0xffc9d1d9).withAlpha (a));
         g.setFont (juce::FontOptions (11.5f));
-        g.drawFittedText (T ("Arrastra al proyecto"), 0, 62, getWidth(), 32, juce::Justification::centredTop, 2);
+        g.drawFittedText (T ("Arrastra al proyecto"), 0, 58, getWidth(), 30, juce::Justification::centredTop, 2);
     }
 
     void mouseDown (const juce::MouseEvent&) override { started = false; }
