@@ -26,10 +26,15 @@ juce_add_plugin(LaPautaTune
 )
 
 target_sources(LaPautaTune PRIVATE
-    Engine.cpp Engine.h Scales.h
-    PianoRoll.cpp PianoRoll.h
-    PluginProcessor.cpp PluginProcessor.h
-    PluginEditor.cpp PluginEditor.h
+    Source/Engine.cpp
+    Source/Engine.h
+    Source/Scales.h
+    Source/PianoRoll.cpp
+    Source/PianoRoll.h
+    Source/PluginProcessor.cpp
+    Source/PluginProcessor.h
+    Source/PluginEditor.cpp
+    Source/PluginEditor.h
 )
 
 target_compile_definitions(LaPautaTune PUBLIC
